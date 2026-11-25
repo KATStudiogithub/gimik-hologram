@@ -1,6 +1,6 @@
 import { computeExteriorWhiteMask } from './gestureEngine';
 
-export const MADANI_LOGO_SRC = '/assets/aistudio/download__1__45744a2b.jpeg';
+export const MADANI_LOGO_SRC = `${import.meta.env.BASE_URL}assets/aistudio/download__1__45744a2b.jpeg`;
 
 export interface ProcessedLogoAsset {
   canvas: HTMLCanvasElement;
