@@ -1,0 +1,6 @@
+{
+  "name": "Gimik Perasmian Malaysia MADANI",
+  "description": "Aplikasi gimik pelancaran interaktif berasaskan gerak isyarat tangan dengan kesan visual futuristik, tayangan video perasmian automatik, dan outro penutup majlis bersama tepukan gemuruh.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
