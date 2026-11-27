@@ -8,6 +8,7 @@ interface OutroScreenProps {
   config: CeremonyConfig;
   logoUrl: string | null;
   muted: boolean;
+  isFullscreen: boolean;
   onToggleMute: () => void;
   onToggleFullscreen: () => void;
   onReplayVideo: () => void;
@@ -29,6 +30,7 @@ export function OutroScreen({
   config,
   logoUrl,
   muted,
+  isFullscreen,
   onToggleMute,
   onToggleFullscreen,
   onReplayVideo,
@@ -162,6 +164,7 @@ export function OutroScreen({
   return (
     <div
       data-screen="outro"
+      data-fullscreen={isFullscreen ? 'true' : 'false'}
       className="relative min-h-screen w-full overflow-hidden bg-[#040814] text-slate-100 flex flex-col justify-between"
     >
       {/* Celebratory Background Gradient & Canvas */}
@@ -180,30 +183,32 @@ export function OutroScreen({
         className="pointer-events-none absolute inset-0 h-full w-full"
       />
 
-      {/* Minimal Top Bar */}
-      <header className="relative z-10 w-full max-w-7xl mx-auto px-6 sm:px-10 py-6 flex items-center justify-between">
-        <span className="font-display text-base font-semibold tracking-tight text-slate-100">
-          Malaysia MADANI
-        </span>
-        <div className="flex items-center gap-2.5">
-          <button
-            type="button"
-            onClick={onToggleMute}
-            aria-label={muted ? 'Aktifkan bunyi' : 'Senyapkan bunyi'}
-            className="inline-flex items-center justify-center h-10 w-10 rounded-lg border border-slate-700/70 bg-slate-950/65 text-slate-300 hover:text-amber-300 transition-colors"
-          >
-            {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-          </button>
-          <button
-            type="button"
-            onClick={onToggleFullscreen}
-            aria-label="Mod skrin penuh"
-            className="inline-flex items-center justify-center h-10 w-10 rounded-lg border border-slate-700/70 bg-slate-950/65 text-slate-300 hover:text-amber-300 transition-colors"
-          >
-            <Maximize2 className="h-4 w-4" />
-          </button>
-        </div>
-      </header>
+      {/* Minimal Top Bar (controls hidden cleanly in fullscreen mode) */}
+      {!isFullscreen && (
+        <header className="relative z-10 w-full max-w-7xl mx-auto px-6 sm:px-10 py-6 flex items-center justify-between">
+          <span className="font-display text-base font-semibold tracking-tight text-slate-100">
+            Malaysia MADANI
+          </span>
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={onToggleMute}
+              aria-label={muted ? 'Aktifkan bunyi' : 'Senyapkan bunyi'}
+              className="inline-flex items-center justify-center h-10 w-10 rounded-lg border border-slate-700/70 bg-slate-950/65 text-slate-300 hover:text-amber-300 transition-colors"
+            >
+              {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+            </button>
+            <button
+              type="button"
+              onClick={onToggleFullscreen}
+              aria-label="Mod skrin penuh"
+              className="inline-flex items-center justify-center h-10 w-10 rounded-lg border border-slate-700/70 bg-slate-950/65 text-slate-300 hover:text-amber-300 transition-colors"
+            >
+              <Maximize2 className="h-4 w-4" />
+            </button>
+          </div>
+        </header>
+      )}
 
       {/* Center Grand Closing Tribute */}
       <main className="relative z-10 flex-1 flex flex-col items-center justify-center text-center px-6 py-6">
@@ -245,9 +250,9 @@ export function OutroScreen({
         </p>
 
         <h1
-          className="font-display font-semibold tracking-tight text-white max-w-4xl leading-[1.1]"
+          className="font-display font-semibold tracking-tight text-white max-w-4xl leading-[1.12]"
           style={{
-            fontSize: 'clamp(2.1rem, 4.5vw, 3.9rem)',
+            fontSize: 'clamp(1.85rem, 3.8vw, 3.35rem)',
             textWrap: 'balance',
           }}
         >
@@ -260,49 +265,54 @@ export function OutroScreen({
           Sekalung Penghargaan &amp; Terima Kasih
         </p>
 
-        <div className="mt-3 flex flex-wrap items-center justify-center gap-2 text-sm text-slate-300">
-          <span className="font-medium text-amber-200/95">{config.vipName}</span>
-          <span aria-hidden="true" className="text-slate-600">·</span>
-          <span>{config.vipTitle}</span>
-          <span aria-hidden="true" className="text-slate-600">·</span>
-          <span className="text-slate-400">{config.eventDate}</span>
+        <div className="mt-3 space-y-1 text-sm text-slate-300 max-w-2xl">
+          <p className="font-semibold text-amber-200/95">{config.vipName}</p>
+          <p className="text-slate-300">
+            {config.vipTitle}
+            {config.vipDepartment ? ` · ${config.vipDepartment}` : ''}
+          </p>
+          <p className="text-slate-400">{config.eventDate}</p>
         </div>
 
-        {/* Subtle Applause Audio Cue + Understated Closing Actions */}
-        <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
-          <button
-            type="button"
-            onClick={triggerApplause}
-            className="inline-flex items-center gap-2.5 px-6 py-3 rounded-xl bg-amber-400 text-[#040814] text-sm font-semibold shadow-[0_0_28px_rgba(251,191,36,0.28)] hover:bg-amber-300 transition-colors whitespace-nowrap"
-          >
-            <Volume2 className="h-4 w-4" />
-            <span>{applausePlaying ? 'Tepukan Sedang Bergema' : 'Ulang Tepukan Meriah'}</span>
-          </button>
+        {/* Subtle Applause Audio Cue + Understated Closing Actions (hidden in fullscreen mode) */}
+        {!isFullscreen && (
+          <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={triggerApplause}
+              className="inline-flex items-center gap-2.5 px-6 py-3 rounded-xl bg-amber-400 text-[#040814] text-sm font-semibold shadow-[0_0_28px_rgba(251,191,36,0.28)] hover:bg-amber-300 transition-colors whitespace-nowrap"
+            >
+              <Volume2 className="h-4 w-4" />
+              <span>{applausePlaying ? 'Tepukan Sedang Bergema' : 'Ulang Tepukan Meriah'}</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={onReplayVideo}
-            className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-slate-700/80 bg-slate-900/60 text-sm font-medium text-slate-200 hover:border-amber-400/50 hover:text-amber-200 transition-colors whitespace-nowrap"
-          >
-            <Play className="h-4 w-4" />
-            <span>Tonton Semula Video</span>
-          </button>
+            <button
+              type="button"
+              onClick={onReplayVideo}
+              className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-slate-700/80 bg-slate-900/60 text-sm font-medium text-slate-200 hover:border-amber-400/50 hover:text-amber-200 transition-colors whitespace-nowrap"
+            >
+              <Play className="h-4 w-4" />
+              <span>Tonton Semula Video</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={onBackToStage}
-            className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-slate-700/80 bg-slate-900/60 text-sm font-medium text-slate-200 hover:border-amber-400/50 hover:text-amber-200 transition-colors whitespace-nowrap"
-          >
-            <RotateCcw className="h-4 w-4" />
-            <span>Kembali ke Pentas</span>
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={onBackToStage}
+              className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-slate-700/80 bg-slate-900/60 text-sm font-medium text-slate-200 hover:border-amber-400/50 hover:text-amber-200 transition-colors whitespace-nowrap"
+            >
+              <RotateCcw className="h-4 w-4" />
+              <span>Kembali ke Pentas</span>
+            </button>
+          </div>
+        )}
       </main>
 
-      {/* Quiet Ceremonial Footer */}
-      <footer className="relative z-10 w-full px-6 py-5 text-center text-xs text-slate-400">
-        {config.eventSubtitle}
-      </footer>
+      {/* Quiet Ceremonial Footer (hidden in fullscreen mode) */}
+      {!isFullscreen && (
+        <footer className="relative z-10 w-full px-6 py-5 text-center text-xs text-slate-400">
+          {config.eventSubtitle}
+        </footer>
+      )}
     </div>
   );
 }

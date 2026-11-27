@@ -1,13 +1,18 @@
 import { useEffect, useState } from 'react';
 import { Check, Play, RotateCcw, Sparkles, Volume2, X } from 'lucide-react';
 import type { CeremonyConfig } from '../types/ceremony';
-import { DEFAULT_YOUTUBE_URL, extractYouTubeVideoId } from '../utils/gestureEngine';
+import {
+  DEFAULT_VIDEO_URL,
+  extractYouTubeVideoId,
+  isDirectVideoUrl,
+} from '../utils/gestureEngine';
 
 interface StageSettingsModalProps {
   open: boolean;
   config: CeremonyConfig;
   onClose: () => void;
   onSave: (next: CeremonyConfig) => void;
+  onTestAiVoice: () => void;
   onTestApplause: () => void;
   onJumpToVideo: () => void;
   onJumpToOutro: () => void;
@@ -18,6 +23,7 @@ export function StageSettingsModal({
   config,
   onClose,
   onSave,
+  onTestAiVoice,
   onTestApplause,
   onJumpToVideo,
   onJumpToOutro,
@@ -34,15 +40,19 @@ export function StageSettingsModal({
 
   if (!open) return null;
 
-  const parsedId = extractYouTubeVideoId(draft.youtubeUrl);
+  const parsedYouTubeId = extractYouTubeVideoId(draft.videoUrl);
+  const isMp4Video = isDirectVideoUrl(draft.videoUrl);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!draft.eventTitle.trim()) {
       return;
     }
-    if (!extractYouTubeVideoId(draft.youtubeUrl)) {
-      setUrlError('Sila masukkan pautan YouTube yang sah (contoh: https://youtu.be/ItXTuf-SHaA).');
+    const trimmedUrl = draft.videoUrl.trim();
+    if (!extractYouTubeVideoId(trimmedUrl) && !isDirectVideoUrl(trimmedUrl)) {
+      setUrlError(
+        'Sila masukkan laluan fail video MP4 yang sah atau pautan YouTube.',
+      );
       return;
     }
     onSave({
@@ -51,8 +61,9 @@ export function StageSettingsModal({
       eventSubtitle: draft.eventSubtitle.trim(),
       vipName: draft.vipName.trim(),
       vipTitle: draft.vipTitle.trim(),
+      vipDepartment: draft.vipDepartment.trim(),
       eventDate: draft.eventDate.trim(),
-      youtubeUrl: draft.youtubeUrl.trim(),
+      videoUrl: trimmedUrl,
     });
     onClose();
   };
@@ -122,7 +133,7 @@ export function StageSettingsModal({
               />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-4">
               <div>
                 <label
                   htmlFor="cfg-vip-name"
@@ -138,20 +149,37 @@ export function StageSettingsModal({
                   className="w-full rounded-lg border border-slate-700 bg-slate-950/70 px-3.5 py-2.5 text-sm text-white focus:border-amber-400 focus:outline-none"
                 />
               </div>
-              <div>
-                <label
-                  htmlFor="cfg-vip-title"
-                  className="block text-sm font-medium text-slate-200 mb-1.5"
-                >
-                  Jawatan Perasmi
-                </label>
-                <input
-                  id="cfg-vip-title"
-                  type="text"
-                  value={draft.vipTitle}
-                  onChange={(e) => setDraft({ ...draft, vipTitle: e.target.value })}
-                  className="w-full rounded-lg border border-slate-700 bg-slate-950/70 px-3.5 py-2.5 text-sm text-white focus:border-amber-400 focus:outline-none"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label
+                    htmlFor="cfg-vip-title"
+                    className="block text-sm font-medium text-slate-200 mb-1.5"
+                  >
+                    Jawatan Perasmi
+                  </label>
+                  <input
+                    id="cfg-vip-title"
+                    type="text"
+                    value={draft.vipTitle}
+                    onChange={(e) => setDraft({ ...draft, vipTitle: e.target.value })}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-950/70 px-3.5 py-2.5 text-sm text-white focus:border-amber-400 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="cfg-vip-department"
+                    className="block text-sm font-medium text-slate-200 mb-1.5"
+                  >
+                    Kementerian / Agensi
+                  </label>
+                  <input
+                    id="cfg-vip-department"
+                    type="text"
+                    value={draft.vipDepartment}
+                    onChange={(e) => setDraft({ ...draft, vipDepartment: e.target.value })}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-950/70 px-3.5 py-2.5 text-sm text-white focus:border-amber-400 focus:outline-none"
+                  />
+                </div>
               </div>
             </div>
 
@@ -174,40 +202,45 @@ export function StageSettingsModal({
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label
-                  htmlFor="cfg-youtube-url"
+                  htmlFor="cfg-video-url"
                   className="block text-sm font-medium text-slate-200"
                 >
-                  Pautan Video Perasmian (YouTube)
+                  Sumber Video Perasmian (MP4 / YouTube)
                 </label>
                 <button
                   type="button"
                   onClick={() => {
-                    setDraft({ ...draft, youtubeUrl: DEFAULT_YOUTUBE_URL });
+                    setDraft({ ...draft, videoUrl: DEFAULT_VIDEO_URL });
                     setUrlError(null);
                   }}
                   className="inline-flex items-center gap-1 text-xs text-amber-300 hover:text-amber-200"
                 >
                   <RotateCcw className="h-3 w-3" />
-                  <span>Asal</span>
+                  <span>Asal (MP4)</span>
                 </button>
               </div>
               <input
-                id="cfg-youtube-url"
-                type="url"
+                id="cfg-video-url"
+                type="text"
                 required
-                value={draft.youtubeUrl}
+                value={draft.videoUrl}
                 onChange={(e) => {
-                  setDraft({ ...draft, youtubeUrl: e.target.value });
+                  setDraft({ ...draft, videoUrl: e.target.value });
                   setUrlError(null);
                 }}
                 className="w-full rounded-lg border border-slate-700 bg-slate-950/70 px-3.5 py-2.5 text-sm text-white font-mono focus:border-amber-400 focus:outline-none"
               />
               {urlError ? (
                 <p className="text-xs text-rose-400 mt-1.5">{urlError}</p>
-              ) : parsedId ? (
+              ) : isMp4Video ? (
                 <p className="text-xs text-slate-400 mt-1.5">
-                  ID Video disahkan:{' '}
-                  <span className="font-mono text-amber-300">{parsedId}</span>
+                  Mod video disahkan:{' '}
+                  <span className="font-mono text-amber-300">Video MP4 Rasmi</span>
+                </p>
+              ) : parsedYouTubeId ? (
+                <p className="text-xs text-slate-400 mt-1.5">
+                  ID YouTube disahkan:{' '}
+                  <span className="font-mono text-amber-300">{parsedYouTubeId}</span>
                 </p>
               ) : null}
             </div>
@@ -219,6 +252,14 @@ export function StageSettingsModal({
               Kawalan Raptai & Ujian Teknikal
             </h3>
             <div className="grid grid-cols-1 gap-2.5">
+              <button
+                type="button"
+                onClick={onTestAiVoice}
+                className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-slate-700 bg-slate-900/70 text-sm text-slate-200 hover:border-amber-400/50 hover:text-amber-200 transition-colors"
+              >
+                <Volume2 className="h-4 w-4 text-amber-300" />
+                <span>Uji Suara AI (BM Malaysia)</span>
+              </button>
               <button
                 type="button"
                 onClick={onTestApplause}

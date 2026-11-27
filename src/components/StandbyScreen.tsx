@@ -6,6 +6,7 @@ interface StandbyScreenProps {
   config: CeremonyConfig;
   logoUrl: string | null;
   muted: boolean;
+  isFullscreen: boolean;
   onToggleMute: () => void;
   onToggleFullscreen: () => void;
   onOpenSettings: () => void;
@@ -16,6 +17,7 @@ export function StandbyScreen({
   config,
   logoUrl,
   muted,
+  isFullscreen,
   onToggleMute,
   onToggleFullscreen,
   onOpenSettings,
@@ -54,32 +56,34 @@ export function StandbyScreen({
           Malaysia MADANI
         </div>
 
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-          <button
-            type="button"
-            onClick={onToggleMute}
-            aria-label={muted ? 'Aktifkan bunyi' : 'Senyapkan bunyi'}
-            className="inline-flex items-center justify-center h-10 w-10 rounded-lg border border-slate-700/70 bg-slate-900/60 text-slate-300 hover:text-amber-300 hover:border-amber-400/50 transition-colors focus-visible:outline-2 focus-visible:outline-amber-400"
-          >
-            {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-          </button>
-          <button
-            type="button"
-            onClick={onToggleFullscreen}
-            aria-label="Mod skrin penuh"
-            className="inline-flex items-center justify-center h-10 w-10 rounded-lg border border-slate-700/70 bg-slate-900/60 text-slate-300 hover:text-amber-300 hover:border-amber-400/50 transition-colors focus-visible:outline-2 focus-visible:outline-amber-400"
-          >
-            <Maximize2 className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={onOpenSettings}
-            className="inline-flex items-center gap-2 h-10 px-4 rounded-lg border border-slate-700/70 bg-slate-900/60 text-sm font-medium text-slate-200 hover:text-amber-200 hover:border-amber-400/50 transition-colors whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-amber-400"
-          >
-            <SlidersHorizontal className="h-4 w-4" />
-            <span>Tetapan Pentas</span>
-          </button>
-        </div>
+        {!isFullscreen && (
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            <button
+              type="button"
+              onClick={onToggleMute}
+              aria-label={muted ? 'Aktifkan bunyi' : 'Senyapkan bunyi'}
+              className="inline-flex items-center justify-center h-10 w-10 rounded-lg border border-slate-700/70 bg-slate-900/60 text-slate-300 hover:text-amber-300 hover:border-amber-400/50 transition-colors focus-visible:outline-2 focus-visible:outline-amber-400"
+            >
+              {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+            </button>
+            <button
+              type="button"
+              onClick={onToggleFullscreen}
+              aria-label="Mod skrin penuh"
+              className="inline-flex items-center justify-center h-10 w-10 rounded-lg border border-slate-700/70 bg-slate-900/60 text-slate-300 hover:text-amber-300 hover:border-amber-400/50 transition-colors focus-visible:outline-2 focus-visible:outline-amber-400"
+            >
+              <Maximize2 className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={onOpenSettings}
+              className="inline-flex items-center gap-2 h-10 px-4 rounded-lg border border-slate-700/70 bg-slate-900/60 text-sm font-medium text-slate-200 hover:text-amber-200 hover:border-amber-400/50 transition-colors whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-amber-400"
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              <span>Tetapan Pentas</span>
+            </button>
+          </div>
+        )}
       </header>
 
       {/* Main Ceremonial Centerpiece */}
@@ -95,9 +99,9 @@ export function StandbyScreen({
 
             <div className="space-y-4">
               <h1
-                className="font-display font-semibold tracking-tight text-white leading-[1.08]"
+                className="font-display font-semibold tracking-tight text-white leading-[1.1]"
                 style={{
-                  fontSize: 'clamp(2.25rem, 4.3vw, 3.85rem)',
+                  fontSize: 'clamp(1.9rem, 3.6vw, 3.3rem)',
                   textWrap: 'balance',
                 }}
               >
@@ -108,10 +112,17 @@ export function StandbyScreen({
               </p>
             </div>
 
-            <div className="pt-1 border-t border-slate-800/80 w-full max-w-lg flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 text-sm text-slate-400">
-              <span className="text-slate-200 font-medium">{config.vipName}</span>
-              <span aria-hidden="true" className="hidden sm:inline text-slate-600">/</span>
-              <span>{config.vipTitle}</span>
+            <div className="pt-3 border-t border-slate-800/80 w-full max-w-xl space-y-1 text-sm">
+              <p className="text-xs font-medium tracking-wide text-amber-300/90">
+                Disempurnakan Oleh
+              </p>
+              <p className="text-base font-semibold text-white">
+                {config.vipName}
+              </p>
+              <p className="text-slate-300">
+                {config.vipTitle}
+                {config.vipDepartment ? ` · ${config.vipDepartment}` : ''}
+              </p>
             </div>
 
             {/* Single Primary CTA + Quiet Rehearsal Alternative */}
@@ -254,10 +265,10 @@ export function StandbyScreen({
           </div>
           <div>
             <p className="font-display font-semibold text-slate-200">
-              03. Letak Pada Tapak Pelancaran
+              03. Lengkapkan Logo Sekolah Angkat MADANI
             </p>
             <p className="text-slate-400 mt-1">
-              Letakkan logo pada tapaknya untuk mencetuskan video perasmian dan penutup majlis.
+              Letakkan Logo MADANI ke dalam tapak Logo Sekolah Angkat MADANI untuk memulakan video perasmian.
             </p>
           </div>
         </div>

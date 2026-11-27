@@ -8,14 +8,31 @@ import type {
   Point2D,
 } from '../types/ceremony';
 
+const BASE_URL =
+  typeof import.meta !== 'undefined' &&
+  (import.meta as unknown as { env?: { BASE_URL?: string } }).env?.BASE_URL
+    ? (import.meta as unknown as { env?: { BASE_URL?: string } }).env!.BASE_URL!
+    : '/';
+
+export const DEFAULT_VIDEO_URL = `${BASE_URL}assets/aistudio/Video_Perasmian_Sekolah_Angkat_MADANI_c9dd4d1f.mp4`;
+
 export const DEFAULT_YOUTUBE_URL =
-  'https://youtu.be/ItXTuf-SHaA?si=ZW1HOAAHTpgLbEIw';
+  'https://www.youtube.com/watch?v=ZJzvtK7-prw';
 
 export const PICKUP_RADIUS = 0.145;
 export const DOCK_RADIUS = 0.135;
 export const HOVER_PICKUP_DURATION = 0.42;
-export const CHARGE_DURATION = 1.75;
-export const LAUNCH_CLIMAX_DURATION = 1.35;
+export const CHARGE_DURATION = 1.65;
+export const LAUNCH_CLIMAX_DURATION = 0.95;
+
+export function isDirectVideoUrl(input: string): boolean {
+  const trimmed = input.trim();
+  if (!trimmed) return false;
+  if (extractYouTubeVideoId(trimmed)) return false;
+  if (/^(blob:|data:video\/)/i.test(trimmed)) return true;
+  const clean = trimmed.split(/[?#]/)[0].toLowerCase();
+  return /\.(mp4|webm|mov|m4v|ogg)$/.test(clean);
+}
 
 export function extractYouTubeVideoId(input: string): string | null {
   const trimmed = input.trim();
@@ -260,8 +277,18 @@ export function stepGimmickState(
       input.handDetected &&
       (input.isOpenPalm || input.isGrasping || input.isPointerDown)
     ) {
-      phase = 'palm_detected';
-      events.push('palm_detected');
+      if (
+        input.handPos &&
+        (input.isGrasping || input.isPointerDown) &&
+        distance2D(input.handPos, logoPos) <= PICKUP_RADIUS
+      ) {
+        phase = 'holding_logo';
+        hoverPickupProgress = 1;
+        events.push('logo_grabbed');
+      } else {
+        phase = 'palm_detected';
+        events.push('palm_detected');
+      }
     }
   } else if (phase === 'palm_detected') {
     logoPos = {
@@ -314,30 +341,38 @@ export function stepGimmickState(
       }
     }
   } else if (phase === 'charging') {
-    // Magnetic lock into exact pedestal center so VIP never loses lock from minor hand tremor
-    const dockSnap = 1 - Math.exp(-9 * dt);
+    // Magnetic lock directly into the exact left slot of Logo Sekolah Angkat MADANI
+    const dockSnap = 1 - Math.exp(-10 * dt);
     logoPos = {
       x: lerp(logoPos.x, pedestalPos.x, dockSnap),
-      y: lerp(logoPos.y, pedestalPos.y - 0.02, dockSnap),
+      y: lerp(logoPos.y, pedestalPos.y, dockSnap),
     };
     chargeProgress = Math.min(1, chargeProgress + dt / CHARGE_DURATION);
-    logoScale = lerp(logoScale, 1.0 + chargeProgress * 0.16, dockSnap);
+    logoScale = lerp(logoScale, 1.0, dockSnap);
     logoGlow = 0.85 + chargeProgress * 0.65;
 
     if (chargeProgress >= 1) {
-      phase = 'launching';
+      phase = 'announcing';
       launchElapsed = 0;
-      events.push('launch_triggered');
+      events.push('access_granted');
     }
+  } else if (phase === 'announcing' || phase === 'countdown') {
+    const dockSnap = 1 - Math.exp(-10 * dt);
+    logoPos = {
+      x: lerp(logoPos.x, pedestalPos.x, dockSnap),
+      y: lerp(logoPos.y, pedestalPos.y, dockSnap),
+    };
+    logoScale = lerp(logoScale, 1.0, dockSnap);
+    logoGlow = phase === 'countdown' ? 2.1 : 1.75;
   } else if (phase === 'launching') {
     launchElapsed += dt;
     const progress = Math.min(1, launchElapsed / LAUNCH_CLIMAX_DURATION);
     logoPos = {
       x: pedestalPos.x,
-      y: pedestalPos.y - 0.02 - progress * 0.04,
+      y: pedestalPos.y,
     };
-    logoScale = 1.16 + progress * 0.35;
-    logoGlow = 1.5 + progress * 1.0;
+    logoScale = 1.0 + progress * 0.12;
+    logoGlow = 2.1 + progress * 1.1;
 
     if (launchElapsed >= LAUNCH_CLIMAX_DURATION) {
       completed = true;

@@ -7,6 +7,8 @@ export type GimmickPhase =
   | 'palm_detected'
   | 'holding_logo'
   | 'charging'
+  | 'announcing'
+  | 'countdown'
   | 'launching';
 
 export interface Point2D {
@@ -35,8 +37,9 @@ export interface CeremonyConfig {
   eventSubtitle: string;
   vipName: string;
   vipTitle: string;
+  vipDepartment: string;
   eventDate: string;
-  youtubeUrl: string;
+  videoUrl: string;
 }
 
 export interface GimmickState {
@@ -65,6 +68,7 @@ export type GimmickAudioEvent =
   | 'logo_grabbed'
   | 'logo_released'
   | 'charge_started'
+  | 'access_granted'
   | 'launch_triggered';
 
 export interface GimmickStepResult {

@@ -5,10 +5,12 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import type { AppScreen, CeremonyConfig, InputMode } from './types/ceremony';
-import { DEFAULT_YOUTUBE_URL } from './utils/gestureEngine';
+import { DEFAULT_VIDEO_URL } from './utils/gestureEngine';
 import {
   loadProcessedMadaniLogo,
+  loadProcessedSekolahAngkatPedestal,
   type ProcessedLogoAsset,
+  type ProcessedPedestalLogoAsset,
 } from './utils/logoProcessor';
 import { ceremonialAudio } from './utils/ceremonialAudio';
 import { StandbyScreen } from './components/StandbyScreen';
@@ -18,13 +20,15 @@ import { OutroScreen } from './components/OutroScreen';
 import { StageSettingsModal } from './components/StageSettingsModal';
 
 const DEFAULT_CONFIG: CeremonyConfig = {
-  eventTitle: 'Majlis Perasmian Malaysia MADANI',
+  eventTitle:
+    'Majlis Apresiasi Kecemerlangan dan Penyerahan Sekolah Angkat MADANI',
   eventSubtitle:
-    'Memacu inovasi, kemampanan dan kesejahteraan negara menerusi pelancaran digital berwawasan.',
-  vipName: 'Yang Berhormat Perasmi Kehormat',
-  vipTitle: 'Tetamu Kehormat Majlis',
-  eventDate: 'Putrajaya, Malaysia',
-  youtubeUrl: DEFAULT_YOUTUBE_URL,
+    'Majlis Apresiasi Kecemerlangan dan Penyerahan Sekolah Angkat MADANI di SK Merbau Pulas 2026.',
+  vipName: 'Yang Berbahagia Encik Erwin Khairul Bin Ahmad',
+  vipTitle: 'Ketua Pengarah Jabatan Penerangan Malaysia',
+  vipDepartment: 'Kementerian Komunikasi',
+  eventDate: 'SK Merbau Pulas · 2026',
+  videoUrl: DEFAULT_VIDEO_URL,
 };
 
 function readInitialNavigation(): { screen: AppScreen; mode: InputMode } {
@@ -43,16 +47,52 @@ function readInitialNavigation(): { screen: AppScreen; mode: InputMode } {
   return { screen: 'standby', mode: modeParam };
 }
 
+function detectIsFullscreen(): boolean {
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return false;
+  }
+  const doc = document as Document & { webkitFullscreenElement?: Element | null };
+  if (Boolean(document.fullscreenElement || doc.webkitFullscreenElement)) {
+    return true;
+  }
+  if (window.matchMedia?.('(display-mode: fullscreen)').matches) {
+    return true;
+  }
+  if (new URLSearchParams(window.location.search).get('fullscreen') === '1') {
+    return true;
+  }
+  return false;
+}
+
 export default function App() {
   const initialNav = readInitialNavigation();
   const [screen, setScreen] = useState<AppScreen>(initialNav.screen);
   const [inputMode, setInputMode] = useState<InputMode>(initialNav.mode);
   const [config, setConfig] = useState<CeremonyConfig>(DEFAULT_CONFIG);
   const [logoAsset, setLogoAsset] = useState<ProcessedLogoAsset | null>(null);
+  const [pedestalAsset, setPedestalAsset] = useState<ProcessedPedestalLogoAsset | null>(null);
   const [muted, setMuted] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(() => detectIsFullscreen());
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  // Pre-process uploaded Malaysia MADANI emblem once to remove exterior white backdrop
+  // Track both Fullscreen API and F11 browser fullscreen cleanly
+  useEffect(() => {
+    const syncFullscreen = () => setIsFullscreen(detectIsFullscreen());
+    document.addEventListener('fullscreenchange', syncFullscreen);
+    document.addEventListener('webkitfullscreenchange', syncFullscreen);
+    window.addEventListener('resize', syncFullscreen);
+    const mq = window.matchMedia?.('(display-mode: fullscreen)');
+    mq?.addEventListener?.('change', syncFullscreen);
+
+    return () => {
+      document.removeEventListener('fullscreenchange', syncFullscreen);
+      document.removeEventListener('webkitfullscreenchange', syncFullscreen);
+      window.removeEventListener('resize', syncFullscreen);
+      mq?.removeEventListener?.('change', syncFullscreen);
+    };
+  }, []);
+
+  // Pre-process both Malaysia MADANI draggable emblem and Sekolah Angkat MADANI pedestal logo
   useEffect(() => {
     let active = true;
     loadProcessedMadaniLogo()
@@ -60,7 +100,14 @@ export default function App() {
         if (active) setLogoAsset(asset);
       })
       .catch(() => {
-        // Fallback to direct image URL is built into components
+        // Fallback built into components
+      });
+    loadProcessedSekolahAngkatPedestal()
+      .then((asset) => {
+        if (active) setPedestalAsset(asset);
+      })
+      .catch(() => {
+        // Fallback built into GestureStage
       });
     return () => {
       active = false;
@@ -87,27 +134,38 @@ export default function App() {
   const handleStartCeremony = useCallback((mode: InputMode) => {
     ceremonialAudio.unlock();
     ceremonialAudio.stopAll();
+    ceremonialAudio.startEpicMusic();
     setInputMode(mode);
     setScreen('stage');
   }, []);
 
   const handleLaunchComplete = useCallback(() => {
+    ceremonialAudio.stopEpicMusic(250);
+    ceremonialAudio.stopSpeech();
     setScreen('video');
   }, []);
 
   const handleVideoEnded = useCallback(() => {
     ceremonialAudio.stopChargeLoop();
+    ceremonialAudio.stopEpicMusic(0);
     setScreen('outro');
   }, []);
 
   const handleBackToStage = useCallback(() => {
     ceremonialAudio.stopAll();
+    ceremonialAudio.startEpicMusic();
     setScreen('stage');
   }, []);
 
   const handleBackToStandby = useCallback(() => {
     ceremonialAudio.stopAll();
     setScreen('standby');
+  }, []);
+
+  const handleTestAiVoice = useCallback(() => {
+    ceremonialAudio.unlock();
+    ceremonialAudio.playAccessGranted();
+    ceremonialAudio.playMalayAnnouncement();
   }, []);
 
   const handleTestApplause = useCallback(() => {
@@ -122,6 +180,7 @@ export default function App() {
           config={config}
           logoUrl={logoAsset?.dataUrl ?? null}
           muted={muted}
+          isFullscreen={isFullscreen}
           onToggleMute={handleToggleMute}
           onToggleFullscreen={handleToggleFullscreen}
           onOpenSettings={() => setSettingsOpen(true)}
@@ -134,7 +193,9 @@ export default function App() {
           config={config}
           inputMode={inputMode}
           logoAsset={logoAsset}
+          pedestalAsset={pedestalAsset}
           muted={muted}
+          isFullscreen={isFullscreen}
           onChangeMode={setInputMode}
           onToggleMute={handleToggleMute}
           onToggleFullscreen={handleToggleFullscreen}
@@ -146,8 +207,9 @@ export default function App() {
 
       {screen === 'video' && (
         <VideoCeremony
-          youtubeUrl={config.youtubeUrl}
+          videoUrl={config.videoUrl}
           eventTitle={config.eventTitle}
+          isFullscreen={isFullscreen}
           onVideoEnded={handleVideoEnded}
           onBackToStage={handleBackToStage}
           onToggleFullscreen={handleToggleFullscreen}
@@ -159,6 +221,7 @@ export default function App() {
           config={config}
           logoUrl={logoAsset?.dataUrl ?? null}
           muted={muted}
+          isFullscreen={isFullscreen}
           onToggleMute={handleToggleMute}
           onToggleFullscreen={handleToggleFullscreen}
           onReplayVideo={() => setScreen('video')}
@@ -171,6 +234,7 @@ export default function App() {
         config={config}
         onClose={() => setSettingsOpen(false)}
         onSave={setConfig}
+        onTestAiVoice={handleTestAiVoice}
         onTestApplause={handleTestApplause}
         onJumpToVideo={() => {
           ceremonialAudio.stopAll();

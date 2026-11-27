@@ -24,13 +24,18 @@ import {
   createInitialGimmickState,
   stepGimmickState,
 } from '../utils/gestureEngine';
-import type { ProcessedLogoAsset } from '../utils/logoProcessor';
+import type {
+  ProcessedLogoAsset,
+  ProcessedPedestalLogoAsset,
+} from '../utils/logoProcessor';
 
 interface GestureStageProps {
   config: CeremonyConfig;
   inputMode: InputMode;
   logoAsset: ProcessedLogoAsset | null;
+  pedestalAsset: ProcessedPedestalLogoAsset | null;
   muted: boolean;
+  isFullscreen: boolean;
   onChangeMode: (mode: InputMode) => void;
   onToggleMute: () => void;
   onToggleFullscreen: () => void;
@@ -80,13 +85,24 @@ const PHASE_GUIDE: Record<GimmickPhase, { title: string; subtitle: string; step:
     step: 2,
   },
   holding_logo: {
-    title: 'Letakkan Pada Tapak Pelancaran',
-    subtitle: 'Bawa Logo Malaysia MADANI dan letakkan pada Tapak Pelancaran di sebelah kanan.',
+    title: 'Lengkapkan Logo Sekolah Angkat MADANI',
+    subtitle: 'Bawa Logo Malaysia MADANI ke dalam ruang kosong pada Logo Sekolah Angkat MADANI.',
     step: 3,
   },
   charging: {
-    title: 'Mengaktifkan Pelancaran Rasmi',
-    subtitle: 'Tenaga pelancaran sedang dijana — bersedia untuk tayangan video perasmian.',
+    title: 'Melengkapkan Logo Sekolah Angkat MADANI',
+    subtitle: 'Logo Malaysia MADANI terkunci — mengesahkan akses hologram...',
+    step: 3,
+  },
+  announcing: {
+    title: 'Akses Diterima',
+    subtitle:
+      'Majlis Apresiasi Kecemerlangan dan Penyerahan Sekolah Angkat MADANI SK Merbau Pulas kini bermula.',
+    step: 3,
+  },
+  countdown: {
+    title: 'Kira Undur Pelancaran Rasmi',
+    subtitle: 'Bersedia untuk tayangan video perasmian rasmi...',
     step: 3,
   },
   launching: {
@@ -108,13 +124,24 @@ const PHASE_GUIDE_SIMULATE: Record<GimmickPhase, { title: string; subtitle: stri
     step: 2,
   },
   holding_logo: {
-    title: 'Letakkan Pada Tapak Pelancaran',
-    subtitle: 'Seret Logo Malaysia MADANI ke tengah Tapak Pelancaran di sebelah kanan.',
+    title: 'Lengkapkan Logo Sekolah Angkat MADANI',
+    subtitle: 'Seret Logo Malaysia MADANI ke ruang kosong pada Logo Sekolah Angkat MADANI di sebelah kanan.',
     step: 3,
   },
   charging: {
-    title: 'Mengaktifkan Pelancaran Rasmi',
-    subtitle: 'Logo telah diletakkan pada tapaknya — menjana tenaga pelancaran...',
+    title: 'Melengkapkan Logo Sekolah Angkat MADANI',
+    subtitle: 'Logo Malaysia MADANI telah diletakkan pada tapaknya — mengesahkan akses hologram...',
+    step: 3,
+  },
+  announcing: {
+    title: 'Akses Diterima',
+    subtitle:
+      'Majlis Apresiasi Kecemerlangan dan Penyerahan Sekolah Angkat MADANI SK Merbau Pulas kini bermula.',
+    step: 3,
+  },
+  countdown: {
+    title: 'Kira Undur Pelancaran Rasmi',
+    subtitle: 'Bersedia untuk tayangan video perasmian rasmi...',
     step: 3,
   },
   launching: {
@@ -128,7 +155,9 @@ export function GestureStage({
   config,
   inputMode,
   logoAsset,
+  pedestalAsset,
   muted,
+  isFullscreen,
   onChangeMode,
   onToggleMute,
   onToggleFullscreen,
@@ -139,6 +168,10 @@ export function GestureStage({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const logoAssetRef = useRef<ProcessedLogoAsset | null>(logoAsset);
   logoAssetRef.current = logoAsset;
+  const pedestalAssetRef = useRef<ProcessedPedestalLogoAsset | null>(pedestalAsset);
+  pedestalAssetRef.current = pedestalAsset;
+  const isFullscreenRef = useRef<boolean>(isFullscreen);
+  isFullscreenRef.current = isFullscreen;
 
   const inputModeRef = useRef<InputMode>(inputMode);
   inputModeRef.current = inputMode;
@@ -154,6 +187,8 @@ export function GestureStage({
   const particlesRef = useRef<Particle[]>([]);
   const shockwavesRef = useRef<Shockwave[]>([]);
   const launchTriggeredRef = useRef(false);
+  const sequenceStartedRef = useRef(false);
+  const sequenceTimersRef = useRef<number[]>([]);
 
   // Pointer simulation state (updated without React re-renders)
   const pointerRef = useRef<{
@@ -166,26 +201,39 @@ export function GestureStage({
     pos: { x: 0.5, y: 0.5 },
   });
 
-  // Low-frequency UI state synced only when phase or 5% charge increments change
+  // Low-frequency UI state synced only when phase, countdown, or charge increments change
   const [uiPhase, setUiPhase] = useState<GimmickPhase>('waiting_palm');
   const [uiChargePct, setUiChargePct] = useState(0);
+  const [countdownNum, setCountdownNum] = useState<3 | 2 | 1 | null>(null);
+
+  const clearSequenceTimers = useCallback(() => {
+    sequenceTimersRef.current.forEach((id) => window.clearTimeout(id));
+    sequenceTimersRef.current = [];
+  }, []);
 
   // Reset stage cleanly when switching modes or mounting
   useEffect(() => {
+    clearSequenceTimers();
     gimmickRef.current = createInitialGimmickState();
     particlesRef.current = [];
     shockwavesRef.current = [];
     launchTriggeredRef.current = false;
+    sequenceStartedRef.current = false;
     setUiPhase('waiting_palm');
     setUiChargePct(0);
+    setCountdownNum(null);
     ceremonialAudio.stopChargeLoop();
-  }, [inputMode]);
+    ceremonialAudio.stopSpeech();
+    ceremonialAudio.startEpicMusic();
+  }, [inputMode, clearSequenceTimers]);
 
   useEffect(() => {
     return () => {
+      clearSequenceTimers();
       ceremonialAudio.stopChargeLoop();
+      ceremonialAudio.stopSpeech();
     };
-  }, []);
+  }, [clearSequenceTimers]);
 
   const updatePointerPos = useCallback((clientX: number, clientY: number) => {
     const canvas = canvasRef.current;
@@ -320,10 +368,44 @@ export function GestureStage({
       ctx.scale(dpr, dpr);
       ctx.clearRect(0, 0, width, height);
 
-      // Determine normalized anchor coordinates responsively
+      // Determine normalized anchor coordinates responsively so the held Logo Malaysia MADANI
+      // snaps 1:1 into the missing left slot of the Logo Sekolah Angkat MADANI pedestal
       const isPortrait = width < 720;
-      const logoHome: Point2D = isPortrait ? { x: 0.5, y: 0.30 } : { x: 0.27, y: 0.45 };
-      const pedestalPos: Point2D = isPortrait ? { x: 0.5, y: 0.67 } : { x: 0.72, y: 0.54 };
+      const pedAsset = pedestalAssetRef.current;
+      const pedAspect = pedAsset ? pedAsset.width / pedAsset.height : 1458 / 652;
+      const slotMeta = pedAsset
+        ? pedAsset.slot
+        : { cx: 0.1015, cy: 0.5023, w: 0.1872, h: 0.7086 };
+
+      const compW = isPortrait
+        ? Math.min(width * 0.88, height * 0.42 * pedAspect)
+        : Math.min(width * 0.52, height * 0.88);
+      const compH = compW / pedAspect;
+
+      let compLeft: number;
+      let compTop: number;
+      let logoHome: Point2D;
+      if (isPortrait) {
+        compLeft = (width - compW) * 0.5;
+        compTop = height * 0.63 - compH * 0.5;
+        logoHome = { x: 0.5, y: 0.25 };
+      } else {
+        const slotTargetX = width * 0.44;
+        const slotTargetY = height * 0.48;
+        compLeft = slotTargetX - slotMeta.cx * compW;
+        compTop = slotTargetY - slotMeta.cy * compH;
+        logoHome = { x: 0.175, y: 0.48 };
+      }
+
+      const compCenterX = compLeft + compW * 0.5;
+      const compCenterY = compTop + compH * 0.5;
+      const slotPxW = slotMeta.w * compW;
+      const slotPxH = slotMeta.h * compH;
+
+      const pedestalPos: Point2D = {
+        x: (compLeft + slotMeta.cx * compW) / Math.max(1, width),
+        y: (compTop + slotMeta.cy * compH) / Math.max(1, height),
+      };
       gimmickRef.current.logoHome = logoHome;
       gimmickRef.current.pedestalPos = pedestalPos;
 
@@ -381,17 +463,81 @@ export function GestureStage({
         } else if (ev === 'charge_started') {
           spawnShockwave(pedPxX, pedPxY, minDim * 0.32, 'rgba(251, 191, 36, 0.95)');
           spawnParticles(pedPxX, pedPxY, 44, 60, 240, ['#FBBF24', '#FDE047', '#3B82F6']);
-        } else if (ev === 'launch_triggered') {
-          ceremonialAudio.playLaunchClimax();
-          spawnShockwave(pedPxX, pedPxY, Math.max(width, height) * 0.85, '#FDE047');
-          spawnShockwave(pedPxX, pedPxY, Math.max(width, height) * 0.62, '#60A5FA');
-          spawnParticles(pedPxX, pedPxY, 110, 90, 420, [
+        } else if (ev === 'access_granted' && !sequenceStartedRef.current) {
+          sequenceStartedRef.current = true;
+          // Duck epic soundtrack smoothly so the futuristic AI voice rings out clearly
+          ceremonialAudio.fadeEpicMusic(0.16, 850);
+          ceremonialAudio.playAccessGranted();
+          spawnShockwave(pedPxX, pedPxY, Math.max(width, height) * 0.78, '#FEF08A');
+          spawnShockwave(pedPxX, pedPxY, Math.max(width, height) * 0.52, '#60A5FA');
+          spawnParticles(pedPxX, pedPxY, 95, 85, 360, [
+            '#FFFBEB',
             '#FEF08A',
             '#FBBF24',
-            '#F59E0B',
             '#60A5FA',
-            '#EF4444',
+            '#F87171',
           ]);
+
+          const beginCountdown = () => {
+            gimmickRef.current = { ...gimmickRef.current, phase: 'countdown' };
+            setUiPhase('countdown');
+
+            const steps: Array<{ num: 3 | 2 | 1; delayMs: number }> = [
+              { num: 3, delayMs: 0 },
+              { num: 2, delayMs: 1180 },
+              { num: 1, delayMs: 2360 },
+            ];
+
+            steps.forEach(({ num, delayMs }) => {
+              const tid = window.setTimeout(() => {
+                setCountdownNum(num);
+                ceremonialAudio.playCountdownTick(num);
+                ceremonialAudio.playMalayCountdown(num);
+                const c = canvasRef.current;
+                const cw = c ? c.clientWidth : width;
+                const ch = c ? c.clientHeight : height;
+                const px = gimmickRef.current.pedestalPos.x * cw;
+                const py = gimmickRef.current.pedestalPos.y * ch;
+                spawnShockwave(px, py, Math.max(cw, ch) * 0.72, num === 1 ? '#FEF08A' : '#FBBF24');
+                spawnShockwave(cw * 0.5, ch * 0.5, Math.max(cw, ch) * 0.55, '#60A5FA');
+                spawnParticles(cw * 0.5, ch * 0.5, 55, 70, 320, [
+                  '#FFFBEB',
+                  '#FEF08A',
+                  '#FBBF24',
+                  '#60A5FA',
+                ]);
+              }, delayMs);
+              sequenceTimersRef.current.push(tid);
+            });
+
+            const launchTid = window.setTimeout(() => {
+              setCountdownNum(null);
+              ceremonialAudio.stopEpicMusic(350);
+              ceremonialAudio.playLaunchClimax();
+              gimmickRef.current = {
+                ...gimmickRef.current,
+                phase: 'launching',
+                launchElapsed: 0,
+              };
+              setUiPhase('launching');
+              const c = canvasRef.current;
+              const cw = c ? c.clientWidth : width;
+              const ch = c ? c.clientHeight : height;
+              const px = gimmickRef.current.pedestalPos.x * cw;
+              const py = gimmickRef.current.pedestalPos.y * ch;
+              spawnShockwave(px, py, Math.max(cw, ch) * 0.95, '#FFFBEB');
+              spawnParticles(px, py, 110, 100, 440, [
+                '#FFFBEB',
+                '#FEF08A',
+                '#FBBF24',
+                '#60A5FA',
+                '#EF4444',
+              ]);
+            }, 3540);
+            sequenceTimersRef.current.push(launchTid);
+          };
+
+          ceremonialAudio.playMalayAnnouncement(beginCountdown);
         }
       }
 
@@ -418,6 +564,15 @@ export function GestureStage({
             size: 2.2 + state.chargeProgress * 2.4,
             color: Math.random() > 0.3 ? '#FBBF24' : '#60A5FA',
           });
+        }
+      } else if (state.phase === 'announcing' || state.phase === 'countdown') {
+        if (Math.random() < 0.85) {
+          spawnParticles(pedPxX, pedPxY, 3, 45, 190, [
+            '#FFFBEB',
+            '#FEF08A',
+            '#FBBF24',
+            '#60A5FA',
+          ]);
         }
       }
 
@@ -455,12 +610,13 @@ export function GestureStage({
 
       // Subtle architectural frame corners
       const margin = Math.max(20, Math.min(44, width * 0.03));
+      const topInset = isFullscreenRef.current ? margin : margin + 56;
       const cornerLen = 22;
       ctx.strokeStyle = 'rgba(212, 175, 55, 0.32)';
       ctx.lineWidth = 1.25;
       const corners: Array<[number, number, number, number]> = [
-        [margin, margin + 56, 1, 1],
-        [width - margin, margin + 56, -1, 1],
+        [margin, topInset, 1, 1],
+        [width - margin, topInset, -1, 1],
         [margin, height - margin - 72, 1, -1],
         [width - margin, height - margin - 72, -1, -1],
       ];
@@ -529,139 +685,206 @@ export function GestureStage({
         ctx.restore();
       }
 
-      // === VISUAL LAYER 4: Tapak Pelancaran (Ceremonial Pedestal Altar) ===
-      const pedRadius = minDim * DOCK_RADIUS * 1.18;
+      // === VISUAL LAYER 4: Tapak Pelancaran — Logo Sekolah Angkat MADANI Hologram ===
+      const pedRadius = Math.max(slotPxW, slotPxH) * 0.62;
       const charge = state.chargeProgress;
       const isLaunching = state.phase === 'launching';
+      const isLogoDocked =
+        state.phase === 'charging' ||
+        state.phase === 'announcing' ||
+        state.phase === 'countdown' ||
+        isLaunching;
       const launchProg = isLaunching
         ? Math.min(1, state.launchElapsed / LAUNCH_CLIMAX_DURATION)
         : 0;
 
-      ctx.save();
-      ctx.translate(pedPxX, pedPxY);
+      // 4A. Wide Architectural 3D Holographic Pedestal Base cradling the full Logo Sekolah Angkat MADANI
+      const stageBaseY = compTop + compH + Math.max(24, compH * 0.085);
+      const stageBeamW = compW * (0.54 + charge * 0.08 + launchProg * 0.24);
+      const stageBeamH = compH * (1.25 + charge * 0.45 + launchProg * 0.9);
 
-      // Volumetric vertical light cone rising seamlessly from sculpted pedestal base
-      const baseOffsetY = pedRadius * 0.64;
-      const beamHeight = minDim * (0.42 + charge * 0.48 + launchProg * 0.85);
-      const beamWidth = pedRadius * (0.88 + charge * 0.32 + launchProg * 0.85);
-      const beamGrad = ctx.createLinearGradient(0, baseOffsetY, 0, baseOffsetY - beamHeight);
+      ctx.save();
+      ctx.translate(compCenterX, stageBaseY);
+
+      const beamGrad = ctx.createLinearGradient(0, 0, 0, -stageBeamH);
       beamGrad.addColorStop(0, 'rgba(251, 191, 36, 0.04)');
       beamGrad.addColorStop(
-        0.16,
+        0.18,
         isLaunching
-          ? 'rgba(254, 240, 138, 0.68)'
-          : state.phase === 'charging'
-            ? `rgba(251, 191, 36, ${0.22 + charge * 0.4})`
+          ? 'rgba(254, 240, 138, 0.6)'
+          : isLogoDocked
+            ? `rgba(251, 191, 36, ${0.18 + charge * 0.34})`
             : state.phase === 'holding_logo'
-              ? 'rgba(251, 191, 36, 0.2)'
-              : 'rgba(59, 130, 246, 0.14)',
+              ? 'rgba(251, 191, 36, 0.16)'
+              : 'rgba(59, 130, 246, 0.13)',
       );
-      beamGrad.addColorStop(0.7, 'rgba(37, 99, 235, 0.06)');
+      beamGrad.addColorStop(0.72, 'rgba(37, 99, 235, 0.05)');
       beamGrad.addColorStop(1, 'rgba(4, 8, 20, 0)');
       ctx.fillStyle = beamGrad;
       ctx.beginPath();
-      ctx.moveTo(-beamWidth * 0.72, baseOffsetY);
-      ctx.lineTo(-beamWidth * 1.05, baseOffsetY - beamHeight);
-      ctx.lineTo(beamWidth * 1.05, baseOffsetY - beamHeight);
-      ctx.lineTo(beamWidth * 0.72, baseOffsetY);
+      ctx.moveTo(-stageBeamW * 0.88, 0);
+      ctx.lineTo(-stageBeamW * 1.15, -stageBeamH);
+      ctx.lineTo(stageBeamW * 1.15, -stageBeamH);
+      ctx.lineTo(stageBeamW * 0.88, 0);
       ctx.closePath();
       ctx.fill();
 
-      // Pedestal Base Glow
-      const pedGlow = ctx.createRadialGradient(0, 0, 8, 0, 0, pedRadius * 1.45);
-      pedGlow.addColorStop(
+      // Sculpted Wide Elliptical Hologram Stage Platform
+      ctx.save();
+      ctx.scale(1, 0.16);
+      const wideBaseR = compW * 0.56;
+      const baseFill = ctx.createRadialGradient(0, 0, 10, 0, 0, wideBaseR);
+      baseFill.addColorStop(
         0,
-        isLaunching
-          ? 'rgba(254, 240, 138, 0.85)'
-          : `rgba(251, 191, 36, ${0.18 + charge * 0.45 + (state.phase === 'holding_logo' ? 0.12 : 0)})`,
+        isLogoDocked ? 'rgba(251, 191, 36, 0.36)' : 'rgba(59, 130, 246, 0.24)',
       );
-      pedGlow.addColorStop(0.55, 'rgba(29, 78, 216, 0.24)');
-      pedGlow.addColorStop(1, 'rgba(4, 8, 20, 0)');
-      ctx.fillStyle = pedGlow;
+      baseFill.addColorStop(0.65, 'rgba(30, 64, 175, 0.18)');
+      baseFill.addColorStop(1, 'rgba(4, 8, 20, 0)');
+      ctx.fillStyle = baseFill;
       ctx.beginPath();
-      ctx.arc(0, 0, pedRadius * 1.45, 0, Math.PI * 2);
+      ctx.arc(0, 0, wideBaseR, 0, Math.PI * 2);
       ctx.fill();
 
-      // Rotating 14-point Malaysian Star Sacred Geometry inside the pedestal
-      ctx.save();
-      const spinSpeed = 0.28 + charge * 3.2 + launchProg * 5.0;
-      draw14PointStar(0, 0, pedRadius * 0.74, pedRadius * 0.46, t * spinSpeed);
-      ctx.strokeStyle =
-        state.phase === 'charging' || isLaunching
-          ? `rgba(254, 240, 138, ${0.45 + charge * 0.45})`
-          : 'rgba(251, 191, 36, 0.28)';
-      ctx.lineWidth = 1.3;
+      ctx.strokeStyle = isLogoDocked
+        ? 'rgba(253, 224, 71, 0.82)'
+        : 'rgba(251, 191, 36, 0.58)';
+      ctx.lineWidth = 3.2;
+      ctx.beginPath();
+      ctx.arc(0, 0, wideBaseR * 0.94, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.strokeStyle = 'rgba(147, 197, 253, 0.45)';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.arc(0, 0, wideBaseR * 0.72, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
+      ctx.restore();
 
-      // Outer Orbital Rings
+      // 4B. Ambient Holographic Aura Behind "Sekolah Angkat MADANI" + Graduating Student
+      ctx.save();
+      const compAuraR = compW * 0.58;
+      const compAura = ctx.createRadialGradient(
+        compCenterX,
+        compCenterY,
+        12,
+        compCenterX,
+        compCenterY,
+        compAuraR,
+      );
+      compAura.addColorStop(
+        0,
+        isLogoDocked
+          ? `rgba(254, 240, 138, ${0.28 + charge * 0.32})`
+          : 'rgba(59, 130, 246, 0.22)',
+      );
+      compAura.addColorStop(0.55, 'rgba(29, 78, 216, 0.16)');
+      compAura.addColorStop(1, 'rgba(4, 8, 20, 0)');
+      ctx.fillStyle = compAura;
+      ctx.beginPath();
+      ctx.arc(compCenterX, compCenterY, compAuraR, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Render "Sekolah Angkat MADANI" + Graduating Student Hologram (left MADANI emblem removed)
+      if (pedAsset) {
+        ctx.globalAlpha = isLogoDocked ? 1 : 0.94;
+        ctx.drawImage(pedAsset.hologramCanvas, compLeft, compTop, compW, compH);
+
+        // Luminous golden completion pulse across the full Sekolah Angkat MADANI typography when docked
+        if (isLogoDocked) {
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.globalAlpha =
+            state.phase === 'charging'
+              ? 0.14 + charge * 0.36
+              : 0.32 + 0.12 * Math.sin(t * 5);
+          ctx.drawImage(pedAsset.hologramCanvas, compLeft, compTop, compW, compH);
+          ctx.globalCompositeOperation = 'source-over';
+        }
+      }
+      ctx.restore();
+
+      // 4C. Left Target Socket — Glowing Empty Blueprint Silhouette of the Removed MADANI Emblem
+      ctx.save();
+      ctx.translate(pedPxX, pedPxY);
+
+      // Subtle glowing halo centered on the socket
+      const sockGlow = ctx.createRadialGradient(0, 0, 6, 0, 0, pedRadius * 1.25);
+      sockGlow.addColorStop(
+        0,
+        isLaunching
+          ? 'rgba(254, 240, 138, 0.82)'
+          : `rgba(251, 191, 36, ${0.14 + charge * 0.44 + (state.phase === 'holding_logo' ? 0.16 : 0)})`,
+      );
+      sockGlow.addColorStop(0.6, 'rgba(37, 99, 235, 0.18)');
+      sockGlow.addColorStop(1, 'rgba(4, 8, 20, 0)');
+      ctx.fillStyle = sockGlow;
+      ctx.beginPath();
+      ctx.arc(0, 0, pedRadius * 1.25, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Rotating 14-point Malaysian star sacred geometry inside the socket (before & during charge)
+      if (!isLogoDocked || state.phase === 'charging') {
+        ctx.save();
+        const spinSpeed = 0.25 + charge * 3.0;
+        draw14PointStar(0, 0, pedRadius * 0.56, pedRadius * 0.35, t * spinSpeed);
+        ctx.strokeStyle =
+          state.phase === 'charging'
+            ? `rgba(254, 240, 138, ${0.38 + charge * 0.45})`
+            : 'rgba(251, 191, 36, 0.24)';
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Outer precision orbital ring around the socket
       ctx.save();
       ctx.rotate(-t * (0.45 + charge * 2.4));
       ctx.strokeStyle =
         state.phase === 'holding_logo' || state.phase === 'charging'
-          ? 'rgba(251, 191, 36, 0.82)'
-          : 'rgba(212, 175, 55, 0.48)';
-      ctx.lineWidth = 1.8;
-      ctx.setLineDash([18, 10]);
+          ? 'rgba(253, 224, 71, 0.88)'
+          : isLogoDocked
+            ? 'rgba(253, 224, 71, 0.42)'
+            : 'rgba(212, 175, 55, 0.52)';
+      ctx.lineWidth = state.phase === 'holding_logo' ? 2.1 : 1.5;
+      ctx.setLineDash([14, 10]);
       ctx.beginPath();
-      ctx.arc(0, 0, pedRadius, 0, Math.PI * 2);
+      ctx.arc(0, 0, pedRadius * 0.92, 0, Math.PI * 2);
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.restore();
 
-      ctx.strokeStyle = 'rgba(147, 197, 253, 0.42)';
-      ctx.lineWidth = 1.1;
-      ctx.beginPath();
-      ctx.arc(0, 0, pedRadius * 0.82, 0, Math.PI * 2);
-      ctx.stroke();
-
-      // 3D Sculpted Base Platform Ellipse (dual concentric rings)
-      ctx.save();
-      ctx.translate(0, baseOffsetY);
-      ctx.scale(1, 0.26);
-      const baseFill = ctx.createRadialGradient(0, 0, 4, 0, 0, pedRadius * 0.96);
-      baseFill.addColorStop(0, 'rgba(251, 191, 36, 0.28)');
-      baseFill.addColorStop(0.65, 'rgba(30, 64, 175, 0.22)');
-      baseFill.addColorStop(1, 'rgba(4, 8, 20, 0)');
-      ctx.fillStyle = baseFill;
-      ctx.beginPath();
-      ctx.arc(0, 0, pedRadius * 0.96, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.strokeStyle = 'rgba(251, 191, 36, 0.72)';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.arc(0, 0, pedRadius * 0.92, 0, Math.PI * 2);
-      ctx.stroke();
-
-      ctx.strokeStyle = 'rgba(147, 197, 253, 0.45)';
-      ctx.lineWidth = 1.6;
-      ctx.beginPath();
-      ctx.arc(0, 0, pedRadius * 0.62, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.restore();
-
-      // Radial Charge Progress Arc (0% -> 100%) with lightweight dual-stroke glow
-      if (charge > 0.01) {
+      // Radial Charge Progress Arc (0% -> 100%) around the docked MADANI emblem
+      if (charge > 0.01 && state.phase === 'charging') {
         ctx.save();
         ctx.lineCap = 'round';
         ctx.strokeStyle = 'rgba(251, 191, 36, 0.34)';
         ctx.lineWidth = 10;
         ctx.beginPath();
-        ctx.arc(0, 0, pedRadius * 1.07, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * charge);
+        ctx.arc(0, 0, pedRadius * 1.0, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * charge);
         ctx.stroke();
 
         ctx.strokeStyle = '#FDE047';
         ctx.lineWidth = 4;
         ctx.beginPath();
-        ctx.arc(0, 0, pedRadius * 1.07, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * charge);
+        ctx.arc(0, 0, pedRadius * 1.0, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * charge);
         ctx.stroke();
         ctx.restore();
       }
-
       ctx.restore();
 
-      // Pedestal Label & Numeric Percentage
+      // Draw the glowing empty blueprint silhouette of the removed MADANI logo until docked
+      if (pedAsset && !isLogoDocked) {
+        ctx.save();
+        const pulse =
+          state.phase === 'holding_logo'
+            ? 0.76 + 0.24 * Math.sin(t * 5.2)
+            : 0.56 + 0.26 * Math.sin(t * 3.0);
+        ctx.globalAlpha = pulse;
+        ctx.drawImage(pedAsset.slotSilhouetteCanvas, compLeft, compTop, compW, compH);
+        ctx.restore();
+      }
+
+      // Clean Pedestal Labels & Charging Percentage
       ctx.save();
       ctx.textAlign = 'center';
       ctx.font = '600 13px "Outfit", sans-serif';
@@ -669,22 +892,37 @@ export function GestureStage({
         state.phase === 'holding_logo' || state.phase === 'charging'
           ? '#FDE68A'
           : 'rgba(226, 232, 240, 0.84)';
-      ctx.fillText('Tapak Pelancaran', pedPxX, pedPxY + pedRadius + 30);
-      if (state.phase === 'charging') {
+      ctx.fillText(
+        isLogoDocked
+          ? 'Logo Sekolah Angkat MADANI Lengkap'
+          : 'Tapak Pelancaran · Sekolah Angkat MADANI',
+        compCenterX,
+        stageBaseY + 26,
+      );
+      if (!isLogoDocked) {
+        ctx.font = '500 11px "Plus Jakarta Sans", sans-serif';
+        ctx.fillStyle =
+          state.phase === 'holding_logo'
+            ? '#FDE047'
+            : 'rgba(147, 197, 253, 0.82)';
+        ctx.fillText('Letak Logo MADANI', pedPxX, pedPxY + slotPxH * 0.5 + 22);
+      } else if (state.phase === 'charging') {
         ctx.font = '600 13px "JetBrains Mono", monospace';
         ctx.fillStyle = '#FDE047';
-        ctx.fillText(`${Math.round(charge * 100)}%`, pedPxX, pedPxY + pedRadius + 49);
+        ctx.fillText(`${Math.round(charge * 100)}%`, pedPxX, pedPxY + slotPxH * 0.5 + 24);
       }
       ctx.restore();
 
-      // === VISUAL LAYER 5: Floating / Held Logo Malaysia MADANI ===
+      // === VISUAL LAYER 5: Floating / Held / Docked Logo Malaysia MADANI ===
       const hoverFloat =
         state.phase === 'waiting_palm' || state.phase === 'palm_detected'
           ? Math.sin(t * 2.4) * 7
           : 0;
       const drawLogoX = logoPxX;
       const drawLogoY = logoPxY + hoverFloat;
-      const baseLogoH = minDim * 0.225 * state.logoScale;
+      const baseLogoH = isLogoDocked
+        ? slotPxH * state.logoScale
+        : slotPxH * (state.phase === 'holding_logo' ? 1.02 : 0.94);
 
       // Hover Lock-On Radial Indicator (when open palm approaches logo)
       if (state.hoverPickupProgress > 0.02 && state.phase === 'palm_detected') {
@@ -704,11 +942,11 @@ export function GestureStage({
         ctx.restore();
       }
 
-      // Luminous Aura Behind Logo MADANI
+      // Luminous Aura Behind Logo Malaysia MADANI
       ctx.save();
-      const auraR = baseLogoH * (0.78 + state.logoGlow * 0.26);
+      const auraR = baseLogoH * (0.76 + state.logoGlow * 0.24);
       const aura = ctx.createRadialGradient(drawLogoX, drawLogoY, 6, drawLogoX, drawLogoY, auraR);
-      aura.addColorStop(0, `rgba(254, 240, 138, ${Math.min(0.82, 0.25 * state.logoGlow)})`);
+      aura.addColorStop(0, `rgba(254, 240, 138, ${Math.min(0.84, 0.25 * state.logoGlow)})`);
       aura.addColorStop(0.5, `rgba(37, 99, 235, ${Math.min(0.55, 0.22 * state.logoGlow)})`);
       aura.addColorStop(1, 'rgba(4, 8, 20, 0)');
       ctx.fillStyle = aura;
@@ -723,7 +961,6 @@ export function GestureStage({
         const drawW = drawH * aspect;
         ctx.drawImage(asset.canvas, drawLogoX - drawW / 2, drawLogoY - drawH / 2, drawW, drawH);
       } else {
-        // Fallback crisp medallion if asset is still processing
         ctx.fillStyle = '#0A1D6E';
         ctx.beginPath();
         ctx.arc(drawLogoX, drawLogoY, baseLogoH * 0.38, 0, Math.PI * 2);
@@ -842,10 +1079,67 @@ export function GestureStage({
         ctx.restore();
       }
 
+      // === VISUAL LAYER 7B: Radiant Golden-Sapphire Light Rays ("Cahaya Gilang Gemilang") ===
+      if (state.phase === 'announcing' || state.phase === 'countdown' || isLaunching) {
+        ctx.save();
+        const rayCount = 14;
+        const maxRayLen = Math.max(width, height) * 0.92;
+        const rayIntensity =
+          state.phase === 'countdown' ? 0.34 : isLaunching ? 0.45 : 0.26;
+
+        ctx.translate(compCenterX, compCenterY);
+
+        // Two shared radial gradients reused across all 14 beams (14x faster on CPU/integrated GPUs)
+        const goldRayGrad = ctx.createRadialGradient(0, 0, 14, 0, 0, maxRayLen);
+        goldRayGrad.addColorStop(0, `rgba(255, 251, 235, ${rayIntensity * 1.5})`);
+        goldRayGrad.addColorStop(0.38, `rgba(251, 191, 36, ${rayIntensity * 0.62})`);
+        goldRayGrad.addColorStop(1, 'rgba(4, 8, 20, 0)');
+
+        const blueRayGrad = ctx.createRadialGradient(0, 0, 14, 0, 0, maxRayLen);
+        blueRayGrad.addColorStop(0, `rgba(251, 191, 36, ${rayIntensity * 1.15})`);
+        blueRayGrad.addColorStop(0.4, `rgba(59, 130, 246, ${rayIntensity * 0.55})`);
+        blueRayGrad.addColorStop(1, 'rgba(4, 8, 20, 0)');
+
+        ctx.fillStyle = goldRayGrad;
+        ctx.beginPath();
+        for (let i = 0; i < rayCount; i += 2) {
+          const baseAngle = (i / rayCount) * Math.PI * 2 + t * 0.22;
+          const spread = 0.068 + 0.018 * Math.sin(t * 2.6 + i);
+          ctx.moveTo(0, 0);
+          ctx.arc(0, 0, maxRayLen, baseAngle - spread, baseAngle + spread);
+          ctx.closePath();
+        }
+        ctx.fill();
+
+        ctx.fillStyle = blueRayGrad;
+        ctx.beginPath();
+        for (let i = 1; i < rayCount; i += 2) {
+          const baseAngle = (i / rayCount) * Math.PI * 2 + t * 0.22;
+          const spread = 0.062 + 0.016 * Math.sin(t * 2.6 + i);
+          ctx.moveTo(0, 0);
+          ctx.arc(0, 0, maxRayLen, baseAngle - spread, baseAngle + spread);
+          ctx.closePath();
+        }
+        ctx.fill();
+
+        // Brilliant radiant aura blooming behind the pedestal
+        const bloomR = minDim * (state.phase === 'countdown' ? 0.62 : 0.5);
+        const bloomGrad = ctx.createRadialGradient(0, 0, 8, 0, 0, bloomR);
+        bloomGrad.addColorStop(0, 'rgba(255, 251, 235, 0.65)');
+        bloomGrad.addColorStop(0.32, 'rgba(251, 191, 36, 0.32)');
+        bloomGrad.addColorStop(0.7, 'rgba(37, 99, 235, 0.14)');
+        bloomGrad.addColorStop(1, 'rgba(4, 8, 20, 0)');
+        ctx.fillStyle = bloomGrad;
+        ctx.beginPath();
+        ctx.arc(0, 0, bloomR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
       // === VISUAL LAYER 8: Golden Climax Supernova Dissolve into Launch Video ===
       if (isLaunching) {
         ctx.save();
-        const flashAlpha = Math.pow(launchProg, 1.65);
+        const flashAlpha = Math.pow(launchProg, 1.55);
         const flashGrad = ctx.createRadialGradient(
           pedPxX,
           pedPxY,
@@ -854,9 +1148,9 @@ export function GestureStage({
           pedPxY,
           Math.max(width, height) * (0.35 + launchProg * 0.95),
         );
-        flashGrad.addColorStop(0, `rgba(255, 251, 235, ${Math.min(1, 0.55 + flashAlpha * 0.6)})`);
-        flashGrad.addColorStop(0.45, `rgba(251, 191, 36, ${Math.min(0.95, flashAlpha * 0.85)})`);
-        flashGrad.addColorStop(1, `rgba(4, 8, 20, ${Math.min(0.95, flashAlpha * 0.92)})`);
+        flashGrad.addColorStop(0, `rgba(255, 251, 235, ${Math.min(1, 0.65 + flashAlpha * 0.5)})`);
+        flashGrad.addColorStop(0.45, `rgba(251, 191, 36, ${Math.min(0.95, flashAlpha * 0.88)})`);
+        flashGrad.addColorStop(1, `rgba(4, 8, 20, ${Math.min(0.96, flashAlpha * 0.94)})`);
         ctx.fillStyle = flashGrad;
         ctx.fillRect(0, 0, width, height);
         ctx.restore();
@@ -879,6 +1173,8 @@ export function GestureStage({
       data-phase={uiPhase}
       data-mode={inputMode}
       data-charge={uiChargePct}
+      data-countdown={countdownNum ?? ''}
+      data-fullscreen={isFullscreen ? 'true' : 'false'}
       className="relative h-screen w-screen overflow-hidden bg-[#040814] text-slate-100 select-none"
     >
       {/* Background: Mirrored Live Camera OR Sleek Obsidian Hologram Grid */}
@@ -924,84 +1220,86 @@ export function GestureStage({
         }`}
       />
 
-      {/* Top Minimal Ceremonial Bar */}
-      <header className="relative z-20 px-4 sm:px-8 py-4 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3 min-w-0">
-          <button
-            type="button"
-            onClick={onBackToStandby}
-            aria-label="Kembali ke skrin utama"
-            className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-slate-700/70 bg-slate-950/70 backdrop-blur-md text-xs font-medium text-slate-300 hover:text-white hover:border-slate-500 transition-colors whitespace-nowrap shrink-0"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            <span>Utama</span>
-          </button>
-          <span className="hidden md:inline font-display text-sm font-semibold text-slate-100 truncate">
-            {config.eventTitle}
-          </span>
-        </div>
-
-        <div className="flex items-center gap-2 shrink-0">
-          {/* Functional Segmented Input Mode Control */}
-          <div
-            role="group"
-            aria-label="Mod input gerak isyarat"
-            className="inline-flex items-center p-1 rounded-lg border border-slate-700/70 bg-slate-950/75 backdrop-blur-md"
-          >
+      {/* Top Minimal Ceremonial Bar (hidden cleanly in fullscreen presentation mode) */}
+      {!isFullscreen && (
+        <header className="relative z-20 px-4 sm:px-8 py-4 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3 min-w-0">
             <button
               type="button"
-              onClick={() => onChangeMode('camera')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors whitespace-nowrap ${
-                inputMode === 'camera'
-                  ? 'bg-amber-400 text-[#040814]'
-                  : 'text-slate-300 hover:text-white'
-              }`}
+              onClick={onBackToStandby}
+              aria-label="Kembali ke skrin utama"
+              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-slate-700/70 bg-slate-950/70 backdrop-blur-md text-xs font-medium text-slate-300 hover:text-white hover:border-slate-500 transition-colors whitespace-nowrap shrink-0"
             >
-              <Camera className="h-3.5 w-3.5" />
-              <span>Kamera</span>
+              <ArrowLeft className="h-3.5 w-3.5" />
+              <span>Utama</span>
             </button>
-            <button
-              type="button"
-              onClick={() => onChangeMode('simulate')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors whitespace-nowrap ${
-                inputMode === 'simulate'
-                  ? 'bg-amber-400 text-[#040814]'
-                  : 'text-slate-300 hover:text-white'
-              }`}
-            >
-              <Hand className="h-3.5 w-3.5" />
-              <span>Simulasi</span>
-            </button>
+            <span className="hidden md:inline font-display text-sm font-semibold text-slate-100 truncate">
+              {config.eventTitle}
+            </span>
           </div>
 
-          <button
-            type="button"
-            onClick={onToggleMute}
-            aria-label={muted ? 'Aktifkan bunyi' : 'Senyapkan bunyi'}
-            className="inline-flex items-center justify-center h-9 w-9 rounded-lg border border-slate-700/70 bg-slate-950/70 backdrop-blur-md text-slate-300 hover:text-amber-300 transition-colors"
-          >
-            {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Functional Segmented Input Mode Control */}
+            <div
+              role="group"
+              aria-label="Mod input gerak isyarat"
+              className="inline-flex items-center p-1 rounded-lg border border-slate-700/70 bg-slate-950/75 backdrop-blur-md"
+            >
+              <button
+                type="button"
+                onClick={() => onChangeMode('camera')}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors whitespace-nowrap ${
+                  inputMode === 'camera'
+                    ? 'bg-amber-400 text-[#040814]'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                <Camera className="h-3.5 w-3.5" />
+                <span>Kamera</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onChangeMode('simulate')}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors whitespace-nowrap ${
+                  inputMode === 'simulate'
+                    ? 'bg-amber-400 text-[#040814]'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                <Hand className="h-3.5 w-3.5" />
+                <span>Simulasi</span>
+              </button>
+            </div>
 
-          <button
-            type="button"
-            onClick={onToggleFullscreen}
-            aria-label="Mod skrin penuh"
-            className="inline-flex items-center justify-center h-9 w-9 rounded-lg border border-slate-700/70 bg-slate-950/70 backdrop-blur-md text-slate-300 hover:text-amber-300 transition-colors"
-          >
-            <Maximize2 className="h-4 w-4" />
-          </button>
+            <button
+              type="button"
+              onClick={onToggleMute}
+              aria-label={muted ? 'Aktifkan bunyi' : 'Senyapkan bunyi'}
+              className="inline-flex items-center justify-center h-9 w-9 rounded-lg border border-slate-700/70 bg-slate-950/70 backdrop-blur-md text-slate-300 hover:text-amber-300 transition-colors"
+            >
+              {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+            </button>
 
-          <button
-            type="button"
-            onClick={onOpenSettings}
-            aria-label="Buka tetapan pentas"
-            className="inline-flex items-center justify-center h-9 w-9 rounded-lg border border-slate-700/70 bg-slate-950/70 backdrop-blur-md text-slate-300 hover:text-amber-300 transition-colors"
-          >
-            <SlidersHorizontal className="h-4 w-4" />
-          </button>
-        </div>
-      </header>
+            <button
+              type="button"
+              onClick={onToggleFullscreen}
+              aria-label="Mod skrin penuh"
+              className="inline-flex items-center justify-center h-9 w-9 rounded-lg border border-slate-700/70 bg-slate-950/70 backdrop-blur-md text-slate-300 hover:text-amber-300 transition-colors"
+            >
+              <Maximize2 className="h-4 w-4" />
+            </button>
+
+            <button
+              type="button"
+              onClick={onOpenSettings}
+              aria-label="Buka tetapan pentas"
+              className="inline-flex items-center justify-center h-9 w-9 rounded-lg border border-slate-700/70 bg-slate-950/70 backdrop-blur-md text-slate-300 hover:text-amber-300 transition-colors"
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+            </button>
+          </div>
+        </header>
+      )}
 
       {/* Graceful Camera Loading or Permission Fallback Banner */}
       {inputMode === 'camera' && trackerStatus === 'loading' && (
@@ -1031,32 +1329,133 @@ export function GestureStage({
         </div>
       )}
 
-      {/* Bottom Ceremonial Instruction Bar */}
-      <div className="pointer-events-none absolute bottom-5 left-1/2 -translate-x-1/2 z-20 w-[92%] max-w-2xl">
-        <div className="rounded-2xl border border-slate-700/60 bg-[#050B1C]/82 backdrop-blur-md px-6 py-4 text-center space-y-2.5">
-          {/* Clean Unboxed 3-Step Progression */}
-          <div className="flex items-center justify-center gap-3 text-xs font-medium">
-            <span className={guide.step >= 1 ? 'text-amber-300' : 'text-slate-500'}>
-              01. Tapak Tangan
-            </span>
-            <span aria-hidden="true" className="text-slate-600">/</span>
-            <span className={guide.step >= 2 ? 'text-amber-300' : 'text-slate-500'}>
-              02. Pegang Logo
-            </span>
-            <span aria-hidden="true" className="text-slate-600">/</span>
-            <span className={guide.step >= 3 ? 'text-amber-300' : 'text-slate-500'}>
-              03. Letak Pada Tapak
+      {/* Futuristic AI Announcement Overlay ("Akses Diterima") */}
+      {uiPhase === 'announcing' && (
+        <div
+          data-testid="ai-announcement-overlay"
+          className="pointer-events-none fixed inset-0 z-30 flex items-center justify-center px-6"
+        >
+          <div className="max-w-3xl w-full rounded-2xl border border-amber-300/45 bg-[#040A1E]/90 px-8 py-9 text-center shadow-[0_0_80px_rgba(251,191,36,0.28)] space-y-5">
+            <div className="flex items-center justify-center gap-1.5 h-6" aria-hidden="true">
+              {[0.55, 0.95, 0.7, 1, 0.8, 0.6, 0.9, 0.5].map((h, i) => (
+                <span
+                  key={i}
+                  className="w-1 rounded-full bg-amber-300 animate-pulse"
+                  style={{
+                    height: `${Math.round(h * 22)}px`,
+                    animationDelay: `${i * 90}ms`,
+                  }}
+                />
+              ))}
+            </div>
+
+            <p className="font-display text-sm sm:text-base font-semibold tracking-[0.18em] text-amber-300">
+              Akses Diterima
+            </p>
+
+            <h2
+              className="font-display text-2xl sm:text-4xl font-semibold text-white leading-tight"
+              style={{ textWrap: 'balance' }}
+            >
+              Majlis Apresiasi Kecemerlangan dan Penyerahan Sekolah Angkat MADANI SK Merbau Pulas Kini Bermula
+            </h2>
+
+            <div className="mx-auto h-px w-32 bg-gradient-to-r from-transparent via-amber-400/80 to-transparent" />
+
+            <p className="text-sm text-slate-300">
+              {config.vipName} · {config.vipTitle}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Futuristic Holographic 3 - 2 - 1 Countdown Overlay */}
+      {uiPhase === 'countdown' && countdownNum !== null && (
+        <div
+          data-testid="ai-countdown-overlay"
+          className="pointer-events-none fixed inset-0 z-30 flex flex-col items-center justify-center px-6"
+        >
+          <div className="relative flex items-center justify-center h-64 w-64 sm:h-80 sm:w-80">
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 320 320"
+              className="absolute inset-0 h-full w-full animate-spin-slow"
+            >
+              <circle
+                cx="160"
+                cy="160"
+                r="146"
+                fill="none"
+                stroke="rgba(251, 191, 36, 0.78)"
+                strokeWidth="2"
+                strokeDasharray="16 10"
+              />
+            </svg>
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 320 320"
+              className="absolute inset-5 h-[calc(100%-2.5rem)] w-[calc(100%-2.5rem)] animate-spin-reverse-slow"
+            >
+              <circle
+                cx="160"
+                cy="160"
+                r="138"
+                fill="none"
+                stroke="rgba(96, 165, 250, 0.72)"
+                strokeWidth="1.5"
+                strokeDasharray="8 14"
+              />
+            </svg>
+            <div
+              aria-hidden="true"
+              className="absolute h-44 w-44 rounded-full blur-3xl opacity-65"
+              style={{
+                background:
+                  'radial-gradient(circle, rgba(254, 240, 138, 0.85) 0%, rgba(251, 191, 36, 0.38) 50%, transparent 100%)',
+              }}
+            />
+            <span
+              key={countdownNum}
+              className="relative z-10 font-display font-bold tabular-nums text-white drop-shadow-[0_0_32px_rgba(254,240,138,0.85)]"
+              style={{ fontSize: 'clamp(6rem, 15vw, 10rem)', lineHeight: 1 }}
+            >
+              {countdownNum}
             </span>
           </div>
-
-          <h2 className="font-display text-lg sm:text-xl font-semibold text-white tracking-tight">
-            {guide.title}
-          </h2>
-          <p className="text-xs sm:text-sm text-slate-300 max-w-xl mx-auto">
-            {guide.subtitle}
+          <p className="mt-5 font-display text-base sm:text-lg font-medium tracking-wide text-amber-200">
+            Memulakan Video Pelancaran Rasmi...
           </p>
         </div>
-      </div>
+      )}
+
+      {/* Bottom Ceremonial Instruction Bar (hidden during full-screen announcement/countdown) */}
+      {uiPhase !== 'announcing' && uiPhase !== 'countdown' && uiPhase !== 'launching' && (
+        <div className="pointer-events-none absolute bottom-5 left-1/2 -translate-x-1/2 z-20 w-[92%] max-w-2xl">
+          <div className="rounded-2xl border border-slate-700/60 bg-[#050B1C]/82 backdrop-blur-md px-6 py-4 text-center space-y-2.5">
+            {/* Clean Unboxed 3-Step Progression */}
+            <div className="flex items-center justify-center gap-3 text-xs font-medium">
+              <span className={guide.step >= 1 ? 'text-amber-300' : 'text-slate-500'}>
+                01. Tapak Tangan
+              </span>
+              <span aria-hidden="true" className="text-slate-600">/</span>
+              <span className={guide.step >= 2 ? 'text-amber-300' : 'text-slate-500'}>
+                02. Pegang Logo
+              </span>
+              <span aria-hidden="true" className="text-slate-600">/</span>
+              <span className={guide.step >= 3 ? 'text-amber-300' : 'text-slate-500'}>
+                03. Lengkapkan Logo
+              </span>
+            </div>
+
+            <h2 className="font-display text-lg sm:text-xl font-semibold text-white tracking-tight">
+              {guide.title}
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-300 max-w-xl mx-auto">
+              {guide.subtitle}
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

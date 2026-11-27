@@ -6,11 +6,16 @@ import {
   Volume2,
   AlertCircle,
 } from 'lucide-react';
-import { extractYouTubeVideoId } from '../utils/gestureEngine';
+import {
+  DEFAULT_VIDEO_URL,
+  extractYouTubeVideoId,
+  isDirectVideoUrl,
+} from '../utils/gestureEngine';
 
 interface VideoCeremonyProps {
-  youtubeUrl: string;
+  videoUrl: string;
   eventTitle: string;
+  isFullscreen: boolean;
   onVideoEnded: () => void;
   onBackToStage: () => void;
   onToggleFullscreen: () => void;
@@ -98,13 +103,15 @@ function loadYouTubeIframeAPI(): Promise<YTNamespace> {
 }
 
 export function VideoCeremony({
-  youtubeUrl,
+  videoUrl,
   eventTitle,
+  isFullscreen,
   onVideoEnded,
   onBackToStage,
   onToggleFullscreen,
 }: VideoCeremonyProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const htmlVideoRef = useRef<HTMLVideoElement | null>(null);
   const playerRef = useRef<YTPlayerInstance | null>(null);
   const onEndedRef = useRef(onVideoEnded);
   onEndedRef.current = onVideoEnded;
@@ -114,16 +121,47 @@ export function VideoCeremony({
   const [embedError, setEmbedError] = useState<string | null>(null);
   const [curtainVisible, setCurtainVisible] = useState(true);
 
-  const videoId = extractYouTubeVideoId(youtubeUrl) ?? 'ItXTuf-SHaA';
+  const normalizedUrl = videoUrl.trim() || DEFAULT_VIDEO_URL;
+  const youtubeId = extractYouTubeVideoId(normalizedUrl);
+  const useNativeVideo = !youtubeId && (isDirectVideoUrl(normalizedUrl) || normalizedUrl === DEFAULT_VIDEO_URL);
+  const effectiveSrc = useNativeVideo ? normalizedUrl : DEFAULT_VIDEO_URL;
 
   useEffect(() => {
     const timer = window.setTimeout(() => setCurtainVisible(false), 650);
     return () => window.clearTimeout(timer);
   }, []);
 
+  // Native HTML5 MP4 video playback lifecycle
   useEffect(() => {
+    if (!useNativeVideo) return;
+    setPlayerReady(false);
+    setNeedsManualPlay(false);
+    setEmbedError(null);
+
+    const videoEl = htmlVideoRef.current;
+    if (!videoEl) return;
+
+    videoEl.currentTime = 0;
+    videoEl.muted = false;
+    const playPromise = videoEl.play();
+    if (playPromise && typeof playPromise.catch === 'function') {
+      playPromise
+        .then(() => {
+          setPlayerReady(true);
+          setNeedsManualPlay(false);
+        })
+        .catch(() => {
+          // Browser blocked unmuted autoplay (e.g. direct URL jump) -> offer 1-click play with audio
+          setPlayerReady(true);
+          setNeedsManualPlay(true);
+        });
+    }
+  }, [useNativeVideo, effectiveSrc]);
+
+  // Fallback YouTube IFrame API lifecycle (when an operator configures a YouTube URL)
+  useEffect(() => {
+    if (useNativeVideo || !youtubeId) return;
     let disposed = false;
-    let fallbackCheckTimer = 0;
 
     setPlayerReady(false);
     setNeedsManualPlay(false);
@@ -133,14 +171,13 @@ export function VideoCeremony({
       .then((YT) => {
         if (disposed || !containerRef.current) return;
 
-        // Create a fresh mount node inside containerRef so React doesn't conflict with iframe replacement
         containerRef.current.innerHTML = '';
         const mountEl = document.createElement('div');
         mountEl.className = 'w-full h-full';
         containerRef.current.appendChild(mountEl);
 
         playerRef.current = new YT.Player(mountEl, {
-          videoId,
+          videoId: youtubeId,
           width: '100%',
           height: '100%',
           playerVars: {
@@ -161,12 +198,6 @@ export function VideoCeremony({
               } catch {
                 setNeedsManualPlay(true);
               }
-              // If browser blocked autoplay with sound, detect after 1.6s and offer 1-click play
-              fallbackCheckTimer = window.setTimeout(() => {
-                if (!disposed) {
-                  // No-op if already playing; state change handler clears needsManualPlay
-                }
-              }, 1600);
             },
             onStateChange: (ev) => {
               if (disposed) return;
@@ -196,7 +227,6 @@ export function VideoCeremony({
 
     return () => {
       disposed = true;
-      window.clearTimeout(fallbackCheckTimer);
       if (playerRef.current) {
         try {
           playerRef.current.destroy();
@@ -206,9 +236,17 @@ export function VideoCeremony({
         playerRef.current = null;
       }
     };
-  }, [videoId]);
+  }, [useNativeVideo, youtubeId]);
 
   const handleManualPlay = () => {
+    if (useNativeVideo && htmlVideoRef.current) {
+      htmlVideoRef.current.muted = false;
+      htmlVideoRef.current
+        .play()
+        .then(() => setNeedsManualPlay(false))
+        .catch(() => {});
+      return;
+    }
     try {
       playerRef.current?.unMute();
       playerRef.current?.playVideo();
@@ -221,6 +259,8 @@ export function VideoCeremony({
   return (
     <div
       data-screen="video"
+      data-player={useNativeVideo ? 'mp4' : 'youtube'}
+      data-fullscreen={isFullscreen ? 'true' : 'false'}
       className="relative h-screen w-screen overflow-hidden bg-black flex flex-col"
     >
       {/* Golden Ignition Curtain Dissolve */}
@@ -235,13 +275,37 @@ export function VideoCeremony({
         }}
       />
 
-      {/* Fullscreen YouTube Player Canvas */}
-      <div className="relative flex-1 w-full h-full bg-black">
-        <div
-          ref={containerRef}
-          data-testid="youtube-player-container"
-          className="w-full h-full [&>iframe]:w-full [&>iframe]:h-full"
-        />
+      {/* Fullscreen Video Canvas (Native MP4 or YouTube fallback) */}
+      <div className="relative flex-1 w-full h-full bg-black min-h-0">
+        {useNativeVideo ? (
+          <video
+            ref={htmlVideoRef}
+            data-testid="mp4-launch-video"
+            src={effectiveSrc}
+            playsInline
+            autoPlay
+            controls={!isFullscreen}
+            preload="auto"
+            onLoadedData={() => setPlayerReady(true)}
+            onPlaying={() => {
+              setPlayerReady(true);
+              setNeedsManualPlay(false);
+            }}
+            onEnded={() => onEndedRef.current()}
+            onError={() =>
+              setEmbedError(
+                'Video perasmian MP4 gagal dimuatkan. Sila semak sambungan atau teruskan ke Outro penutup majlis.',
+              )
+            }
+            className="w-full h-full object-contain bg-black"
+          />
+        ) : (
+          <div
+            ref={containerRef}
+            data-testid="youtube-player-container"
+            className="w-full h-full [&>iframe]:w-full [&>iframe]:h-full"
+          />
+        )}
 
         {!playerReady && !embedError && (
           <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center bg-[#040814]/90 text-slate-200 gap-4">
@@ -298,41 +362,43 @@ export function VideoCeremony({
         )}
       </div>
 
-      {/* Discreet Operator Footer Bar (low visual clutter, immediately accessible) */}
-      <div className="relative z-30 bg-[#040814]/92 border-t border-slate-800/80 px-5 sm:px-8 py-3 flex items-center justify-between gap-4">
-        <div className="min-w-0">
-          <p className="font-display text-sm font-medium text-slate-200 truncate">
-            {eventTitle}
-          </p>
-        </div>
+      {/* Discreet Operator Footer Bar (hidden cleanly in fullscreen presentation mode) */}
+      {!isFullscreen && (
+        <div className="relative z-30 bg-[#040814]/92 border-t border-slate-800/80 px-5 sm:px-8 py-3 flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <p className="font-display text-sm font-medium text-slate-200 truncate">
+              {eventTitle}
+            </p>
+          </div>
 
-        <div className="flex items-center gap-2.5 shrink-0">
-          <button
-            type="button"
-            onClick={onBackToStage}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-slate-700/80 bg-slate-900/70 text-xs font-medium text-slate-300 hover:text-white hover:border-slate-500 transition-colors whitespace-nowrap"
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-            <span>Ulang Gimik</span>
-          </button>
-          <button
-            type="button"
-            onClick={onVideoEnded}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-amber-400 text-[#040814] text-xs font-semibold hover:bg-amber-300 transition-colors whitespace-nowrap"
-          >
-            <FastForward className="h-3.5 w-3.5" />
-            <span>Tamatkan &amp; Ke Outro</span>
-          </button>
-          <button
-            type="button"
-            onClick={onToggleFullscreen}
-            aria-label="Mod skrin penuh"
-            className="inline-flex items-center justify-center h-8 w-8 rounded-lg border border-slate-700/80 bg-slate-900/70 text-slate-300 hover:text-amber-300 transition-colors"
-          >
-            <Maximize2 className="h-3.5 w-3.5" />
-          </button>
+          <div className="flex items-center gap-2.5 shrink-0">
+            <button
+              type="button"
+              onClick={onBackToStage}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-slate-700/80 bg-slate-900/70 text-xs font-medium text-slate-300 hover:text-white hover:border-slate-500 transition-colors whitespace-nowrap"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              <span>Ulang Gimik</span>
+            </button>
+            <button
+              type="button"
+              onClick={onVideoEnded}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-amber-400 text-[#040814] text-xs font-semibold hover:bg-amber-300 transition-colors whitespace-nowrap"
+            >
+              <FastForward className="h-3.5 w-3.5" />
+              <span>Tamatkan &amp; Ke Outro</span>
+            </button>
+            <button
+              type="button"
+              onClick={onToggleFullscreen}
+              aria-label="Mod skrin penuh"
+              className="inline-flex items-center justify-center h-8 w-8 rounded-lg border border-slate-700/80 bg-slate-900/70 text-slate-300 hover:text-amber-300 transition-colors"
+            >
+              <Maximize2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

@@ -1,26 +1,36 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  DEFAULT_VIDEO_URL,
   DEFAULT_YOUTUBE_URL,
   analyzeHandLandmarks,
   computeExteriorWhiteMask,
   createInitialGimmickState,
   extractYouTubeVideoId,
+  isDirectVideoUrl,
   stepGimmickState,
 } from './gestureEngine';
 import type { NormalizedLandmark } from '../types/ceremony';
 
-test('extractYouTubeVideoId parses user launch URL and standard formats', () => {
-  assert.equal(extractYouTubeVideoId(DEFAULT_YOUTUBE_URL), 'ItXTuf-SHaA');
+test('extractYouTubeVideoId and isDirectVideoUrl distinguish MP4 and YouTube launch videos', () => {
+  assert.equal(isDirectVideoUrl(DEFAULT_VIDEO_URL), true);
+  assert.equal(isDirectVideoUrl('/assets/video/pelancaran.mp4'), true);
+  assert.equal(isDirectVideoUrl('https://cdn.example.com/clip.mp4?v=1'), true);
+  assert.equal(isDirectVideoUrl(DEFAULT_YOUTUBE_URL), false);
+  assert.equal(extractYouTubeVideoId(DEFAULT_YOUTUBE_URL), 'ZJzvtK7-prw');
   assert.equal(
-    extractYouTubeVideoId('https://www.youtube.com/watch?v=ItXTuf-SHaA&t=10s'),
+    extractYouTubeVideoId('https://www.youtube.com/watch?v=ZJzvtK7-prw&t=10s'),
+    'ZJzvtK7-prw',
+  );
+  assert.equal(
+    extractYouTubeVideoId('https://youtu.be/ItXTuf-SHaA?si=ZW1HOAAHTpgLbEIw'),
     'ItXTuf-SHaA',
   );
   assert.equal(
-    extractYouTubeVideoId('https://www.youtube.com/embed/ItXTuf-SHaA'),
-    'ItXTuf-SHaA',
+    extractYouTubeVideoId('https://www.youtube.com/embed/ZJzvtK7-prw'),
+    'ZJzvtK7-prw',
   );
-  assert.equal(extractYouTubeVideoId('ItXTuf-SHaA'), 'ItXTuf-SHaA');
+  assert.equal(extractYouTubeVideoId('ZJzvtK7-prw'), 'ZJzvtK7-prw');
   assert.equal(extractYouTubeVideoId('https://example.com/not-youtube'), null);
   assert.equal(extractYouTubeVideoId(''), null);
 });
@@ -155,8 +165,8 @@ test('stepGimmickState runs full ceremony flow: palm -> grab -> dock -> charge -
   }
   assert.equal(state.phase, 'charging');
 
-  // 4. Charging progresses to 1.0 -> launching
-  let sawLaunchEvent = false;
+  // 4. Charging progresses to 1.0 -> announcing (access_granted)
+  let sawAccessGranted = false;
   for (let i = 0; i < 40 && state.phase === 'charging'; i++) {
     res = stepGimmickState(
       state,
@@ -170,12 +180,13 @@ test('stepGimmickState runs full ceremony flow: palm -> grab -> dock -> charge -
       0.06,
     );
     state = res.state;
-    if (res.events.includes('launch_triggered')) sawLaunchEvent = true;
+    if (res.events.includes('access_granted')) sawAccessGranted = true;
   }
-  assert.equal(state.phase, 'launching');
-  assert.equal(sawLaunchEvent, true);
+  assert.equal(state.phase, 'announcing');
+  assert.equal(sawAccessGranted, true);
 
-  // 5. Launch climax finishes -> completed = true
+  // 5. After AI announcement and 3-2-1 countdown, stage enters launching -> completed = true
+  state = { ...state, phase: 'launching', launchElapsed: 0 };
   for (let i = 0; i < 30 && !state.completed; i++) {
     res = stepGimmickState(
       state,
